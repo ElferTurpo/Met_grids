@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurantes Cercanos en Juliaca</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <style>
+        #map {
+            height: 600px;
+        }
+        #controls {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>Restaurantes Cercanos en Juliaca</h1>
+    <div id="map"></div>
+    <div id="controls">
+        <label for="numRestaurants">Cantidad de restaurantes cercanos:</label>
+        <input type="number" id="numRestaurants" name="numRestaurants" min="1" max="15" value="5">
+        <button onclick="searchNearbyRestaurants()">Buscar</button>
+    </div>
+    <div id="coordinates">
+        <p>Coordenadas seleccionadas: <span id="lat">-</span>, <span id="lng">-</span></p>
+    </div>
+    <table id="resultsTable">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Distancia (m)</th>
+                <th>Coordenadas</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Los resultados se mostrarán aquí -->
+        </tbody>
+    </table>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script>
+        class Restaurant {
+            constructor(name, latitude, longitude) {
+                this.name = name;
+                this.latitude = latitude;
+                this.longitude = longitude;
+            }
+
+            // Calcular la distancia entre este restaurante y una ubicación dada
+            distanceTo(latitude, longitude) {
+                const toRad = angle => angle * Math.PI / 180;
+                const R = 6371e3; // Radio de la Tierra en metros
+                const φ1 = toRad(this.latitude);
+                const φ2 = toRad(latitude);
+                const Δφ = toRad(latitude - this.latitude);
+                const Δλ = toRad(longitude - this.longitude);
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                          Math.cos(φ1) * Math.cos(φ2) *
+                          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c; // Distancia en metros
+            }
+        }
+
+        class Grid {
+            constructor(size) {
+                this.size = size; // Tamaño de cada celda de la cuadrícula
+                this.cells = new Map();
+            }
+
+            // Función de hash para convertir coordenadas en una clave de celda
+            getCellKey(latitude, longitude) {
+                const cellX = Math.floor(latitude / this.size);
+                const cellY = Math.floor(longitude / this.size);
+                return `${cellX},${cellY}`;
+            }
+
+            // Añadir un restaurante a la cuadrícula
+            addRestaurant(restaurant) {
+                const key = this.getCellKey(restaurant.latitude, restaurant.longitude);
+                if (!this.cells.has(key)) {
+                    this.cells.set(key, []);
+                }
+                this.cells.get(key).push(restaurant);
+            }
+
+            // Buscar restaurantes en celdas vecinas
+            getNearbyRestaurants(latitude, longitude, numRestaurants) {
+                const cellX = Math.floor(latitude / this.size);
+                const cellY = Math.floor(longitude / this.size);
+                const nearbyRestaurants = [];
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        const key = `${cellX + dx},${cellY + dy}`;
+                        if (this.cells.has(key)) {
+                            nearbyRestaurants.push(...this.cells.get(key));
+                        }
+                    }
+                }
+                // Ordenar por distancia y devolver los más cercanos
+                return nearbyRestaurants.map(restaurant => ({
+                    restaurant: restaurant,
+                    distance: restaurant.distanceTo(latitude, longitude)
+                })).sort((a, b) => a.distance - b.distance).slice(0, numRestaurants);
+            }
+        }
+
+        // Crear un mapa centrado en Juliaca
+        var map = L.map('map').setView([-15.4997, -70.1333], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Inicializar la cuadrícula con un tamaño de celda
+        const grid = new Grid(0.01); // Ajustar el tamaño de la celda según sea necesario
+
+        // Añadir algunos restaurantes de ejemplo
+        const restaurants = [
+            new Restaurant("Restaurante 1", -15.4997, -70.1333),
+            new Restaurant("Restaurante 2", -15.49549, -70.14212),
+            new Restaurant("Restaurante 3", -15.48999, -70.12741),
+            new Restaurant("Restaurante 4", -15.49688, -70.12048),
+            new Restaurant("Restaurante 5", -15.49134, -70.13700),
+            new Restaurant("Restaurante 6", -15.48424, -70.13191),
+            new Restaurant("Restaurante 7", -15.48581, -70.14178),
+            new Restaurant("Restaurante 8", -15.50976, -70.12324),
+            new Restaurant("Restaurante 9", -15.50157, -70.11736),
+            new Restaurant("Restaurante 10", -15.49863, -70.12539),
+            new Restaurant("Restaurante 11", -15.48618, -70.11977),
+            new Restaurant("Restaurante 12", -15.48097, -70.13895),
+            new Restaurant("Restaurante 13", -15.47961, -70.13002),
+            new Restaurant("Restaurante 14", -15.48742, -70.11380),
+            new Restaurant("Restaurante 15", -15.47659, -70.13380)
+        ];
+
+        restaurants.forEach(restaurant => grid.addRestaurant(restaurant));
+
+        // Añadir marcadores para los restaurantes en el mapa
+        restaurants.forEach(restaurant => {
+            L.marker([restaurant.latitude, restaurant.longitude]).addTo(map)
+                .bindPopup(restaurant.name);
+        });
+
+        let userMarker;
+        let routingControl;
+
+        map.on('click', function(event) {
+            if (userMarker) {
+                map.removeLayer(userMarker);
+            }
+            userMarker = L.marker([event.latlng.lat, event.latlng.lng], {icon: L.icon({iconUrl: 'https://leafletjs.com/examples/custom-icons/leaf-red.png', iconSize: [38, 95], iconAnchor: [22, 94], popupAnchor: [-3, -76], shadowUrl: 'https://leafletjs.com/examples/custom-icons/leaf-shadow.png', shadowSize: [50, 64], shadowAnchor: [4, 62]})}).addTo(map)
+                .bindPopup("Tu ubicación")
+                .openPopup();
+            document.getElementById('lat').textContent = event.latlng.lat.toFixed(5);
+            document.getElementById('lng').textContent = event.latlng.lng.toFixed(5);
+            searchNearbyRestaurants(event.latlng.lat, event.latlng.lng);
+        });
+
+        function searchNearbyRestaurants(latitude, longitude) {
+            const numRestaurants = document.getElementById('numRestaurants').value;
+            const nearbyRestaurants = grid.getNearbyRestaurants(latitude, longitude, numRestaurants);
+
+            const resultsTable = document.getElementById('resultsTable').getElementsByTagName('tbody')[0];
+            resultsTable.innerHTML = ''; // Limpiar resultados anteriores
+
+            // Crear un array para almacenar las direcciones de los puntos
+            const waypoints = [];
+
+            // Dibujar las rutas y llenar la tabla con los resultados
+            nearbyRestaurants.forEach(({restaurant, distance}) => {
+                const row = resultsTable.insertRow();
+                const nameCell = row.insertCell(0);
+                const distanceCell = row.insertCell(1);
+                const coordsCell = row.insertCell(2);
+                nameCell.textContent = restaurant.name;
+                distanceCell.textContent = distance.toFixed(2);
+                coordsCell.textContent = `(${restaurant.latitude}, ${restaurant.longitude})`;
+
+                // Añadir marcadores para los restaurantes en el mapa
+                L.marker([restaurant.latitude, restaurant.longitude]).addTo(map)
+                    .bindPopup(restaurant.name);
+
+                // Añadir cada restaurante como punto de destino
+                waypoints.push(L.latLng(restaurant.latitude, restaurant.longitude));
+            });
+
+            // Añadir el marcador del usuario como punto de partida
+            waypoints.unshift(L.latLng(latitude, longitude));
+
+            // Crear la instancia del control de rutas
+            if (routingControl) {
+                map.removeControl(routingControl);
+            }
+            routingControl = L.Routing.control({
+                waypoints: waypoints,
+                routeWhileDragging: true, // Permitir recalcular la ruta al mover el marcador
+                show: false // Ocultar el control por defecto de la ruta
+            }).addTo(map);
+        }
+    </script>
+</body>
+</html>
